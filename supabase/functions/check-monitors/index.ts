@@ -64,10 +64,33 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    const now = new Date();
     const results: CheckResult[] = [];
+    let checkedCount = 0;
 
-    // Check each monitor
+    // Check each monitor based on its check_interval
     for (const monitor of monitors as Monitor[]) {
+      // Check if this monitor is due for a check
+      let shouldCheck = false;
+      
+      if (!monitor.last_checked_at) {
+        // Never checked before, check it now
+        shouldCheck = true;
+      } else {
+        const lastChecked = new Date(monitor.last_checked_at);
+        const minutesSinceLastCheck = (now.getTime() - lastChecked.getTime()) / 1000 / 60;
+        
+        // Check if enough time has passed based on check_interval
+        if (minutesSinceLastCheck >= monitor.check_interval) {
+          shouldCheck = true;
+        }
+      }
+
+      if (!shouldCheck) {
+        continue;
+      }
+
+      checkedCount++;
       const startTime = Date.now();
       let status: 'up' | 'down' = 'down';
       let statusCode: number | null = null;
@@ -75,7 +98,7 @@ Deno.serve(async (req: Request) => {
 
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
 
         const response = await fetch(monitor.url, {
           method: "GET",
@@ -129,12 +152,11 @@ Deno.serve(async (req: Request) => {
       // Update monitor last_checked_at
       await supabase
         .from("monitors")
-        .update({ last_checked_at: new Date().toISOString() })
+        .update({ last_checked_at: now.toISOString() })
         .eq("id", monitor.id);
 
       // Send Telegram notification if monitor is down
       if (status === 'down') {
-        // Get user settings for Telegram notifications
         const { data: settings } = await supabase
           .from("user_settings")
           .select("telegram_chat_id, telegram_notifications_enabled, telegram_bot_token")
@@ -148,7 +170,6 @@ Deno.serve(async (req: Request) => {
             userSettings.telegram_chat_id &&
             userSettings.telegram_bot_token
           ) {
-            // Send Telegram notification
             const message = `🚨 *Monitor Alert*\n\n` +
               `*${monitor.name}* is DOWN!\n\n` +
               `URL: ${monitor.url}\n` +
@@ -179,7 +200,9 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         message: "Monitors checked successfully",
-        checked: monitors.length,
+        total_active: monitors.length,
+        checked: checkedCount,
+        skipped: monitors.length - checkedCount,
         results,
       }),
       {
