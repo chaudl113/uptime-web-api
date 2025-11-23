@@ -78,10 +78,10 @@ Deno.serve(async (req: Request) => {
         shouldCheck = true;
       } else {
         const lastChecked = new Date(monitor.last_checked_at);
-        const minutesSinceLastCheck = (now.getTime() - lastChecked.getTime()) / 1000 / 60;
+        const secondsSinceLastCheck = (now.getTime() - lastChecked.getTime()) / 1000;
         
-        // Check if enough time has passed based on check_interval
-        if (minutesSinceLastCheck >= monitor.check_interval) {
+        // check_interval is in seconds, compare with seconds since last check
+        if (secondsSinceLastCheck >= monitor.check_interval) {
           shouldCheck = true;
         }
       }
